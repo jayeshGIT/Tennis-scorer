@@ -1,6 +1,6 @@
 // Tennis Scorer service worker – cache-first app shell, works offline after first load.
 // Bump VERSION when any shell file changes so clients pick up the update.
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = 'tennis-scorer-' + VERSION;
 const SHELL = ['./', './index.html', './manifest.webmanifest', './apple-touch-icon.png', './icon-192.png', './icon-512.png'];
 

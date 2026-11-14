@@ -131,6 +131,8 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
 .dialog .dm{color:var(--muted);font-size:15px;line-height:1.4;margin-bottom:6px}
 .dangerSolid{background:var(--red);color:#fff}
 #btnSave{padding:10px 12px}
+.actions.how .act{font-size:23px;text-align:center}
+.actions.how .act .nm{white-space:normal}
 @media (max-height:700px){ .act{min-height:70px;font-size:24px} .prompt .q{font-size:21px} .sbrow{padding:9px 12px} }
 </style>
 </head>
@@ -234,7 +236,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
    Events: 'ace' | 'in' | 'fault' | 'df' | 'w0' | 'w1'  */
 var Engine = (function(){
   function mkStats(){ return {points:0,games:0,aces:0,dfs:0,servePts:0,firstIn:0,firstWon:0,secondPts:0,secondWon:0,
-    svcGames:0,svcWon:0,bpOpp:0,bpWon:0,recvPts:0,recvWon:0,maxGames:0,maxPts:0}; }
+    svcGames:0,svcWon:0,bpOpp:0,bpWon:0,recvPts:0,recvWon:0,maxGames:0,maxPts:0,winners:0,ue:0,ueNet:0,ueOut:0}; }
 
   function init(cfg){
     var s = {
@@ -322,6 +324,15 @@ var Engine = (function(){
     }
   }
   function apply(s, ev){
+    // 'how' phase: how the last rally point ended. Events: 'win' (winner by point winner),
+    // 'net' / 'out' (unforced error by point loser). Older logs have no such event: any
+    // other event here means "unknown" and is processed normally.
+    if (s.phase==='how'){
+      var hw = s.howWinner, hl = 1-hw;
+      s.phase = s.over ? 'over' : 'serve1'; s.howWinner = null;
+      if (ev==='win'){ s.stats[hw].winners++; return true; }
+      if (ev==='net'||ev==='out'){ s.stats[hl].ue++; s.stats[hl][ev==='net'?'ueNet':'ueOut']++; return true; }
+    }
     if (s.over) return false;
     var srv = pointServer(s);
     switch (s.phase){
@@ -336,7 +347,7 @@ var Engine = (function(){
         if (ev==='df'){ awardPoint(s, 1-srv, {first:false, df:true}); return true; }
         return false;
       case 'rally1': case 'rally2':
-        if (ev==='w0'||ev==='w1'){ awardPoint(s, ev==='w0'?0:1, {first:s.phase==='rally1'}); return true; }
+        if (ev==='w0'||ev==='w1'){ var pw = ev==='w0'?0:1; awardPoint(s, pw, {first:s.phase==='rally1'}); s.phase='how'; s.howWinner=pw; return true; }
         return false;
     }
     return false;
@@ -512,7 +523,7 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
   }
   function renderPlay(){
     var s = Engine.replay(cur.cfg, cur.events), n = cur.cfg.names;
-    if (s.over){ finishMatch(); return; }
+    if (s.over && s.phase!=='how'){ finishMatch(); return; }
     var srv = Engine.pointServer(s), rcv = 1-srv, lbl = Engine.pointLabel(s);
     var sb='';
     for (var p=0;p<2;p++){
@@ -531,6 +542,7 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
     [0,1].forEach(function(p){ var r=Engine.pointWins(s,p); if (r.match) mp=true; else if (r.set) sp=true; });
     if (mp) tags+='<span class="tag mp">Match point</span>'; else if (sp) tags+='<span class="tag sp">Set point</span>';
     if (Engine.isBreakPoint(s)) tags+='<span class="tag bp">Break point</span>';
+    if (s.phase==='how') tags = '<span class="tag dp">Point '+esc(n[s.howWinner])+'</span>';
     $('tags').innerHTML = tags;
 
     var q, sub, acts;
@@ -540,12 +552,19 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
     } else if (s.phase==='serve2'){
       q = esc(n[srv])+' – 2nd serve'; sub = 'Serving to '+esc(n[rcv]);
       acts = [['ace','a-ace','Ace',''],['in','a-in','In','rally'],['df','a-df','Double fault','point to '+esc(n[rcv])]];
+    } else if (s.phase==='how'){
+      var hw = s.howWinner, hl = 1-hw;
+      q = 'How did '+esc(n[hw])+' win it?'; sub = 'Point to '+esc(n[hw]);
+      acts = [['win','a-ace','Winner','by '+esc(n[hw])],
+              ['net','a-fault','<span class="nm">'+esc(n[hl])+' error – net</span>','unforced error'],
+              ['out','a-df','<span class="nm">'+esc(n[hl])+' error – out/side</span>','unforced error']];
     } else {
       q = 'Who won the point?'; sub = (s.phase==='rally1'?'1st':'2nd')+' serve in';
       acts = [['w0','a-p0','<span class="nm">'+esc(n[0])+'</span>',srv===0?'server':'receiver'],
               ['w1','a-p1','<span class="nm">'+esc(n[1])+'</span>',srv===1?'server':'receiver']];
     }
     $('pq').innerHTML = q; $('psub').innerHTML = sub;
+    $('actions').className = 'actions'+(s.phase==='how'?' how':'');
     $('actions').innerHTML = acts.map(function(a){
       return '<button class="act '+a[1]+'" data-ev="'+a[0]+'">'+a[2]+(a[3]?'<small>'+a[3]+'</small>':'')+'</button>';
     }).join('');
@@ -612,6 +631,10 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
       r('Service Games Won', function(x){return x.svcWon+' / '+x.svcGames}, function(x){return x.svcGames?x.svcWon/x.svcGames:0}),
       r('Break Points Won', function(x){return x.bpWon+' / '+x.bpOpp}, function(x){return x.bpWon}),
       r('Receiver Points Won', function(x){return frac(x.recvWon,x.recvPts)}, function(x){return x.recvPts?x.recvWon/x.recvPts:0}),
+      r('Winners', function(x){return x.winners}, function(x){return x.winners}),
+      r('Unforced Errors', function(x){return x.ue}, function(x){return -x.ue}),
+      r('UE – Net', function(x){return x.ueNet}, function(x){return -x.ueNet}),
+      r('UE – Out/Side', function(x){return x.ueOut}, function(x){return -x.ueOut}),
       r('Max Games in a Row', function(x){return x.maxGames}, function(x){return x.maxGames}),
       r('Max Points in a Row', function(x){return x.maxPts}, function(x){return x.maxPts})
     ];
