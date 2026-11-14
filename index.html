@@ -169,7 +169,12 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
 .t-fe{background:#0f3d46;color:#7dd3fc;border-color:#38bdf8}
 .t-re{background:#4a3410;color:#fcd34d;border-color:#f59e0b}
 .t-ae{background:#4a1d2e;color:#f9a8d4;border-color:#ec4899}
-.ghsum{margin-top:8px;font-size:12.5px;color:#c9ced8;line-height:1.45}
+.ghsum{margin-top:8px;font-size:12.5px;color:#c9ced8;line-height:1.45;display:flex;flex-direction:column;gap:5px;border-top:1px solid var(--line);padding-top:8px}
+.pv{display:flex;gap:7px;align-items:flex-start}
+.pv i{flex:0 0 10px;height:10px;border-radius:3px;margin-top:4px}
+.pv i.d0{background:#3b6fe0}.pv i.d1{background:#9b4fd6}
+.pv b{color:var(--text)}
+.pv .pw{color:#bbf7d0}.pv .pl{color:#fecaca}
 .ghk{display:flex;gap:10px;justify-content:center;font-size:12px;color:var(--muted);margin-top:6px}
 .ghk .k0:before{background:#1e3a8a}.ghk .k1:before{background:#581c87}
 @media (max-height:700px){ .act{min-height:70px;font-size:24px} .prompt .q{font-size:21px} .sbrow{padding:9px 12px} }
@@ -191,7 +196,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
       <div class="hlist" id="savedList"></div>
     </div>
     <button class="big secondary" id="btnHistory">Match history</button>
-    <div class="muted small" style="text-align:center;margin-top:18px;opacity:.6">Version 7 · friendlier game history</div>
+    <div class="muted small" style="text-align:center;margin-top:18px;opacity:.6">Version 8 · both players' view in game history</div>
   </section>
 
   <!-- SETUP -->
@@ -481,17 +486,36 @@ var Engine = (function(){
   };
   var TAG_ORDER = ['W','Ace','F','R','A','DF'];
   function pointTag(mark){ return TAGS[mark] || null; }
-  // Plain-English per-game summary, e.g. "Jayesh: 2 winners, 1 ace · Amit: 1 forced error"
-  function gameSummary(g, names){
-    var c = [{},{}];
-    g.points.forEach(function(p){ var t = TAGS[p.mark]; if (!t) return; var who = t.by==='w' ? p.w : 1-p.w; c[who][p.mark] = (c[who][p.mark]||0)+1; });
-    var parts = [0,1].map(function(i){
-      var items = TAG_ORDER.filter(function(m){ return c[i][m]; }).map(function(m){ var k=c[i][m]; return k+' '+(k===1?TAGS[m].one:TAGS[m].many); });
-      return items.length ? names[i]+': '+items.join(', ') : '';
-    }).filter(Boolean);
-    return parts.join(' · ');
+  /* Both players' point of view for one game. Returns one entry per player:
+     {won, lost, wonParts:[...], lostParts:[...], text:"won 1: 1 winner · lost 4: 3 attacking errors, 1 rally error"} */
+  function plural(k, one, many){ return k===1 ? one : many; }
+  function gamePerspectives(g, names){
+    return [0,1].map(function(i){
+      var o = 1-i, opp = names[o], won = {}, lost = {}, nw = 0, nl = 0;
+      g.points.forEach(function(p){
+        var m = TAGS[p.mark] ? p.mark : '?';
+        if (p.w===i){ nw++; won[m]=(won[m]||0)+1; } else { nl++; lost[m]=(lost[m]||0)+1; }
+      });
+      function parts(map, isWon){
+        var keys = ['W','Ace','F','R','A','DF','?'].filter(function(m){ return map[m]; });
+        keys.sort(function(a,b){ return map[b]-map[a]; });           // stable: ties keep the order above
+        return keys.map(function(m){
+          var k = map[m], t = TAGS[m];
+          if (m==='?') return k+' other';
+          if (isWon){
+            if (t.by==='w') return k+' '+plural(k,t.one,t.many);                  // own winners / aces
+            return k+' off '+opp+"'s "+plural(k,t.one,t.many);                    // opponent's errors
+          }
+          if (t.by==='l') return k+' '+plural(k,t.one,t.many);                    // own errors / double faults
+          return k===1 ? opp+"'s "+t.one : k+' to '+opp+"'s "+t.many;            // opponent's winners / aces
+        });
+      }
+      var wp = parts(won, true), lp = parts(lost, false);
+      var text = (nw ? 'won '+nw+': '+wp.join(', ') : 'won 0')+' · '+(nl ? 'lost '+nl+': '+lp.join(', ') : 'lost 0');
+      return {player:i, won:nw, lost:nl, wonParts:wp, lostParts:lp, text:text};
+    });
   }
-  return {pointTag:pointTag, gameSummary:gameSummary, TAGS:TAGS, gameHistory:gameHistory, progLabel:progLabel, init:init, apply:apply, replay:replay, pointServer:pointServer, isBreakPoint:isBreakPoint,
+  return {pointTag:pointTag, gamePerspectives:gamePerspectives, TAGS:TAGS, gameHistory:gameHistory, progLabel:progLabel, init:init, apply:apply, replay:replay, pointServer:pointServer, isBreakPoint:isBreakPoint,
           pointWins:pointWins, pointLabel:pointLabel, isDeuce:isDeuce, need:need};
 })();
 if (typeof module!=='undefined') module.exports = Engine;
@@ -829,10 +853,14 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
         var t = Engine.pointTag(p.mark);
         return '<span class="chip p'+p.w+(end?' end':'')+'"><span class="sc">'+esc(p.label)+'</span>'+(t?'<span class="tg t-'+t.key+'">'+t.label+'</span>':'')+'</span>';
       }).join('');
-      var summ = Engine.gameSummary(g, n);
+      var summ = g.points.length ? Engine.gamePerspectives(g, n).map(function(v){
+        return '<div class="pv"><i class="d'+v.player+'"></i><span><b>'+esc(n[v.player])+'</b> — '+
+          '<span class="pw">'+(v.won?'won '+v.won+': '+esc(v.wonParts.join(', ')):'won 0')+'</span> · '+
+          '<span class="pl">'+(v.lost?'lost '+v.lost+': '+esc(v.lostParts.join(', ')):'lost 0')+'</span></span></div>';
+      }).join('') : '';
       h += '<div class="gh'+(g.inProgress?' live':'')+'"><div class="ghh"><span class="ghn">'+(g.tb?'TB':'G'+g.num)+'</span>'+
            '<span class="ghsrv"><i></i>'+esc(n[g.server])+(g.tb?' first':'')+'</span>'+badge+who+'<span class="ghsc">'+sc+'</span></div>'+
-           '<div class="ghp">'+(pts||'<span class="muted">not started</span>')+'</div>'+(summ?'<div class="ghsum">'+esc(summ)+'</div>':'')+'</div>';
+           '<div class="ghp">'+(pts||'<span class="muted">not started</span>')+'</div>'+(summ?'<div class="ghsum">'+summ+'</div>':'')+'</div>';
     });
     h += '<div class="ghk"><span class="k0">'+esc(n[0])+' won point</span><span class="k1">'+esc(n[1])+' won point</span></div>';
     $('ghList').innerHTML = h || '<div class="empty">No points yet.</div>';
