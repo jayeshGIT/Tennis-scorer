@@ -175,6 +175,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
       <div class="hlist" id="savedList"></div>
     </div>
     <button class="big secondary" id="btnHistory">Match history</button>
+    <div class="muted small" style="text-align:center;margin-top:18px;opacity:.6">Version 4 · with Game history</div>
   </section>
 
   <!-- SETUP -->
@@ -827,7 +828,16 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
 </script>
 <script>
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
-  window.addEventListener('load', function(){ navigator.serviceWorker.register('./sw.js', {scope:'./'}).catch(function(e){ console.warn('SW registration failed', e); }); });
+  var hadController = !!navigator.serviceWorker.controller, reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if (hadController && !reloaded) { reloaded = true; location.reload(); } // match is auto-saved, so this is safe
+  });
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('./sw.js', {scope:'./', updateViaCache:'none'}).then(function(reg){
+      reg.update();
+      document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') reg.update(); });
+    }).catch(function(e){ console.warn('SW registration failed', e); });
+  });
 }
 </script>
 </body>
