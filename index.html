@@ -89,6 +89,7 @@ input[type=text]:focus{border-color:var(--accent)}
 .a-in{background:var(--accent);color:#111}
 .a-fault{background:#4a3410;color:#fbbf24}
 .a-df{background:#4c1616;color:#fca5a5}
+.a-fe{background:#0f3d46;color:#7dd3fc}
 .a-p0{background:#1e3a8a;color:#dbeafe}
 .a-p1{background:#581c87;color:#f3e8ff}
 .act .nm{max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -131,7 +132,9 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
 .dialog .dm{color:var(--muted);font-size:15px;line-height:1.4;margin-bottom:6px}
 .dangerSolid{background:var(--red);color:#fff}
 #btnSave{padding:10px 12px}
-.actions.how .act{font-size:23px;text-align:center}
+.actions.how{gap:10px;min-height:0}
+.actions.how .act{font-size:21px;text-align:center;min-height:72px;max-height:118px;border-radius:18px;padding:6px 10px}
+.actions.how .act small{font-size:12px}
 .actions.how .act .nm{white-space:normal}
 .ghlegend{font-size:12px;color:var(--muted);text-align:center;line-height:1.6}
 .ghlegend b{color:var(--text)}
@@ -175,7 +178,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
       <div class="hlist" id="savedList"></div>
     </div>
     <button class="big secondary" id="btnHistory">Match history</button>
-    <div class="muted small" style="text-align:center;margin-top:18px;opacity:.6">Version 4 · with Game history</div>
+    <div class="muted small" style="text-align:center;margin-top:18px;opacity:.6">Version 5 · forced vs unforced errors</div>
   </section>
 
   <!-- SETUP -->
@@ -233,7 +236,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
   <section class="screen" id="s-gamehist">
     <div class="topbar"><button class="pill" id="ghBack">‹ Back</button><h2>Game history</h2><span style="width:70px"></span></div>
     <div class="muted small" id="ghMeta" style="text-align:center"></div>
-    <div class="ghlegend">Scores server first · tiebreaks <span id="ghTbOrder"></span><br><b>A</b> ace · <b>DF</b> double fault · <b>W</b> winner · <b>N</b> error in net · <b>O</b> error out/side</div>
+    <div class="ghlegend">Scores server first · tiebreaks <span id="ghTbOrder"></span><br><b>A</b> ace · <b>DF</b> double fault · <b>W</b> winner · <b>F</b> forced error<br><b>N</b> unforced error in net · <b>O</b> unforced error out/wide</div>
     <div id="ghList"></div>
   </section>
 
@@ -268,7 +271,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
    Events: 'ace' | 'in' | 'fault' | 'df' | 'w0' | 'w1'  */
 var Engine = (function(){
   function mkStats(){ return {points:0,games:0,aces:0,dfs:0,servePts:0,firstIn:0,firstWon:0,secondPts:0,secondWon:0,
-    svcGames:0,svcWon:0,bpOpp:0,bpWon:0,recvPts:0,recvWon:0,maxGames:0,maxPts:0,winners:0,ue:0,ueNet:0,ueOut:0}; }
+    svcGames:0,svcWon:0,bpOpp:0,bpWon:0,recvPts:0,recvWon:0,maxGames:0,maxPts:0,winners:0,fe:0,ue:0,ueNet:0,ueOut:0}; }
 
   function init(cfg){
     var s = {
@@ -357,12 +360,13 @@ var Engine = (function(){
   }
   function apply(s, ev){
     // 'how' phase: how the last rally point ended. Events: 'win' (winner by point winner),
-    // 'net' / 'out' (unforced error by point loser). Older logs have no such event: any
+    // 'fe' (forced error by point loser), 'net' / 'out' (unforced error by point loser). Older logs have no such event: any
     // other event here means "unknown" and is processed normally.
     if (s.phase==='how'){
       var hw = s.howWinner, hl = 1-hw;
       s.phase = s.over ? 'over' : 'serve1'; s.howWinner = null;
       if (ev==='win'){ s.stats[hw].winners++; return true; }
+      if (ev==='fe'){ s.stats[hl].fe++; return true; }   // forced error by the point loser
       if (ev==='net'||ev==='out'){ s.stats[hl].ue++; s.stats[hl][ev==='net'?'ueNet':'ueOut']++; return true; }
     }
     if (s.over) return false;
@@ -433,8 +437,8 @@ var Engine = (function(){
           g.score = s.sets.length!==nSets ? s.sets[s.sets.length-1].g.slice() : s.games.slice();
           out.push(g); start();
         }
-      } else if (ph==='how' && last && (ev==='win'||ev==='net'||ev==='out')){
-        last.mark = ev==='win' ? 'W' : ev==='net' ? 'N' : 'O';
+      } else if (ph==='how' && last && (ev==='win'||ev==='fe'||ev==='net'||ev==='out')){
+        last.mark = ev==='win' ? 'W' : ev==='fe' ? 'F' : ev==='net' ? 'N' : 'O';
       }
     }
     if (!s.over){ g.score = s.games.slice(); out.push(g); }
@@ -626,9 +630,10 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
     } else if (s.phase==='how'){
       var hw = s.howWinner, hl = 1-hw;
       q = 'How did '+esc(n[hw])+' win it?'; sub = 'Point to '+esc(n[hw]);
-      acts = [['win','a-ace','Winner','by '+esc(n[hw])],
-              ['net','a-fault','<span class="nm">'+esc(n[hl])+' error – net</span>','unforced error'],
-              ['out','a-df','<span class="nm">'+esc(n[hl])+' error – out/side</span>','unforced error']];
+      acts = [['win','a-ace','Winner','clean winner by '+esc(n[hw])],
+              ['fe','a-fe','<span class="nm">'+esc(n[hl])+' forced error</span>','pushed into a miss by '+esc(n[hw])+'’s shot'],
+              ['net','a-fault','<span class="nm">'+esc(n[hl])+' unforced error – net</span>','easy ball, own mistake'],
+              ['out','a-df','<span class="nm">'+esc(n[hl])+' unforced error – out/wide</span>','easy ball, own mistake']];
     } else {
       q = 'Who won the point?'; sub = (s.phase==='rally1'?'1st':'2nd')+' serve in';
       acts = [['w0','a-p0','<span class="nm">'+esc(n[0])+'</span>',srv===0?'server':'receiver'],
@@ -704,6 +709,7 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
       r('Break Points Won', function(x){return x.bpWon+' / '+x.bpOpp}, function(x){return x.bpWon}),
       r('Receiver Points Won', function(x){return frac(x.recvWon,x.recvPts)}, function(x){return x.recvPts?x.recvWon/x.recvPts:0}),
       r('Winners', function(x){return x.winners}, function(x){return x.winners}),
+      r('Forced Errors', function(x){return x.fe}, function(x){return -x.fe}),
       r('Unforced Errors', function(x){return x.ue}, function(x){return -x.ue}),
       r('UE – Net', function(x){return x.ueNet}, function(x){return -x.ueNet}),
       r('UE – Out/Side', function(x){return x.ueOut}, function(x){return -x.ueOut}),
