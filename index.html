@@ -102,6 +102,10 @@ table.st tr:last-child td{border-bottom:0}
 table.st th{background:var(--panel2);font-size:15px}
 table.st th.lbl{text-align:left}
 table.st td.lbl{text-align:left;color:var(--muted);font-size:13px;width:36%}
+table.st tr.sub td{background:rgba(255,255,255,.025);padding-top:8px;padding-bottom:8px;font-size:13px;color:#9aa1ae}
+table.st tr.sub td.lbl{padding-left:18px;font-size:12px;color:#7d8594}
+table.st tr.sub td.best{color:#d7dbe3}
+table.st tr.sub .tree{color:#5b6372;margin-right:6px}
 table.st td.best{color:var(--text);font-weight:700}
 table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
 .res{display:inline-block;font-size:11px;font-weight:800;padding:2px 6px;border-radius:6px;margin-left:4px;vertical-align:middle}
@@ -196,7 +200,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
       <div class="hlist" id="savedList"></div>
     </div>
     <button class="big secondary" id="btnHistory">Match history</button>
-    <div class="muted small" style="text-align:center;margin-top:18px;opacity:.6">Version 8 · both players' view in game history</div>
+    <div class="muted small" style="text-align:center;margin-top:18px;opacity:.6">Version 9 · grouped error stats</div>
   </section>
 
   <!-- SETUP -->
@@ -768,6 +772,7 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
   function statRows(s){
     var a=s.stats[0], b=s.stats[1];
     function r(label,f,num){ return {label:label, v:[f(a),f(b)], n:num?[num(a),num(b)]:null}; }
+    function sub(row){ row.sub = true; return row; }   // shown indented under the row above (parts of Unforced Errors)
     return [
       r('Games Won', function(x){return x.games}, function(x){return x.games}),
       r('Points Won', function(x){return x.points}, function(x){return x.points}),
@@ -782,8 +787,8 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
       r('Winners', function(x){return x.winners}, function(x){return x.winners}),
       r('Forced Errors', function(x){return x.fe}, function(x){return -x.fe}),
       r('Unforced Errors', function(x){return x.ue}, function(x){return -x.ue}),
-      r('Rally Errors', function(x){return x.re}, function(x){return -x.re}),
-      r('Attacking Errors', function(x){return x.ae}, function(x){return -x.ae}),
+      sub(r('Rally Errors', function(x){return x.re}, function(x){return -x.re})),
+      sub(r('Attacking Errors', function(x){return x.ae}, function(x){return -x.ae})),
       r('Max Games in a Row', function(x){return x.maxGames}, function(x){return x.maxGames}),
       r('Max Points in a Row', function(x){return x.maxPts}, function(x){return x.maxPts})
     ];
@@ -803,7 +808,9 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
     statRows(s).forEach(function(row){
       var c0='',c1='';
       if (row.n && row.n[0]!==row.n[1]){ if (row.n[0]>row.n[1]) c0='best'; else c1='best'; }
-      h += '<tr><td class="lbl">'+row.label+'</td><td class="'+c0+'">'+row.v[0]+'</td><td class="'+c1+'">'+row.v[1]+'</td></tr>';
+      h += row.sub
+        ? '<tr class="sub"><td class="lbl"><span class="tree">└</span>'+row.label+'</td><td class="'+c0+'">'+row.v[0]+'</td><td class="'+c1+'">'+row.v[1]+'</td></tr>'
+        : '<tr><td class="lbl">'+row.label+'</td><td class="'+c0+'">'+row.v[0]+'</td><td class="'+c1+'">'+row.v[1]+'</td></tr>';
     });
     $('statsTable').innerHTML = h;
     var canUndo = mode==='live' || (mode==='final' && justFinished && justFinished.id===m.id && m.events.length);
@@ -874,7 +881,7 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
     var t = '🎾 '+n[0]+' vs '+n[1]+'\n'+fmtDate(m.startedAt)+' · '+dur(m)+'\n';
     t += (s.over ? n[s.winner]+' won '+scoreLine(s) : 'Score: '+scoreLine(s,true)+(m.finishedAt?' (ended early)':' (in progress)'))+'\n\n';
     t += '— '+n[0]+' | '+n[1]+'\n';
-    rows.forEach(function(r){ t += r.label+': '+r.v[0]+' | '+r.v[1]+'\n'; });
+    rows.forEach(function(r){ t += (r.sub?'  - ':'')+r.label+': '+r.v[0]+' | '+r.v[1]+'\n'; });
     return t;
   }
   $('btnShare').onclick=function(){
