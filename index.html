@@ -133,6 +133,29 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
 #btnSave{padding:10px 12px}
 .actions.how .act{font-size:23px;text-align:center}
 .actions.how .act .nm{white-space:normal}
+.ghlegend{font-size:12px;color:var(--muted);text-align:center;line-height:1.6}
+.ghlegend b{color:var(--text)}
+.ghset{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin:14px 2px 8px;display:flex;justify-content:space-between}
+.ghset b{color:var(--accent)}
+.gh{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:8px}
+.gh.live{border-color:var(--accent);border-style:dashed}
+.ghh{display:flex;align-items:center;gap:8px;font-size:14px}
+.ghn{color:var(--muted);font-weight:700;width:28px;flex:0 0 28px}
+.ghsrv{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+.ghsrv i{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:0 0 8px}
+.ghw{font-weight:700;white-space:nowrap}
+.ghsc{font-weight:800;font-size:16px;font-variant-numeric:tabular-nums;min-width:40px;text-align:right}
+.brk{font-size:10px;font-weight:800;letter-spacing:.8px;padding:3px 6px;border-radius:6px;background:#3b1414;color:#ff7b7b}
+.tbb{font-size:10px;font-weight:800;letter-spacing:.8px;padding:3px 6px;border-radius:6px;background:#10263b;color:#7cc0ff}
+.ipb{font-size:10px;font-weight:800;letter-spacing:.8px;padding:3px 6px;border-radius:6px;background:#1d2a12;color:#bff27a}
+.ghp{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
+.ghp span{font-size:12px;padding:3px 6px;border-radius:6px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ghp .p0{background:#1e3a8a;color:#dbeafe}.ghp .p1{background:#581c87;color:#f3e8ff}
+.ghp sup{font-size:9px;font-weight:800;margin-left:2px;color:var(--accent)}
+.ghp .end{font-weight:800}
+.ghk{display:flex;gap:10px;justify-content:center;font-size:12px;color:var(--muted);margin-top:6px}
+.ghk span:before{content:'';display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px;vertical-align:-1px}
+.ghk .k0:before{background:#1e3a8a}.ghk .k1:before{background:#581c87}
 @media (max-height:700px){ .act{min-height:70px;font-size:24px} .prompt .q{font-size:21px} .sbrow{padding:9px 12px} }
 </style>
 </head>
@@ -201,10 +224,18 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
       <button class="big secondary" id="btnShare">Share / Copy</button>
       <button class="big primary" id="btnNew2">New match</button>
     </div>
+    <button class="big secondary" id="btnGames">Game history</button>
     <button class="big danger" id="btnDelete" style="display:none">Delete from history</button>
   </section>
 
   <!-- HISTORY -->
+  <section class="screen" id="s-gamehist">
+    <div class="topbar"><button class="pill" id="ghBack">‹ Back</button><h2>Game history</h2><span style="width:70px"></span></div>
+    <div class="muted small" id="ghMeta" style="text-align:center"></div>
+    <div class="ghlegend">Scores server first · tiebreaks <span id="ghTbOrder"></span><br><b>A</b> ace · <b>DF</b> double fault · <b>W</b> winner · <b>N</b> error in net · <b>O</b> error out/side</div>
+    <div id="ghList"></div>
+  </section>
+
   <section class="screen" id="s-history">
     <div class="topbar"><button class="pill" data-go="home">‹ Back</button><h2>History</h2><span style="width:70px"></span></div>
     <div class="hlist" id="hlist"></div>
@@ -214,7 +245,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
 <div class="sheet-bg" id="menu">
   <div class="sheet">
     <button class="big primary" id="mSave">Save &amp; exit (resume later)</button>
-    <button class="big secondary" id="mStats">Stats so far</button>
+    <div class="btnrow"><button class="big secondary" id="mStats">Stats so far</button><button class="big secondary" id="mGames">Game history</button></div>
     <button class="big secondary" id="mEnd">End match now (move to history)</button>
     <button class="big danger" id="mDelete">Delete match</button>
     <button class="big secondary" id="mClose">Cancel</button>
@@ -369,7 +400,46 @@ var Engine = (function(){
     return [names[Math.min(p[0],3)], names[Math.min(p[1],3)]];
   }
   function isDeuce(s){ return !s.tb && s.pts[0]>=3 && s.pts[0]===s.pts[1]; }
-  return {init:init, apply:apply, replay:replay, pointServer:pointServer, isBreakPoint:isBreakPoint,
+  // Label of a game score after a point, server first (tiebreak: player order).
+  function progLabel(p, srv, tb, noAd){
+    if (tb) return p[0]+'-'+p[1];
+    var a=p[srv], b=p[1-srv], N=['0','15','30','40'];
+    if (a>=3 && b>=3){
+      if (noAd || a===b) return a===b ? (noAd?'40-40':'Deuce') : '';
+      return a>b ? 'Ad-in' : 'Ad-out';
+    }
+    return N[Math.min(a,3)]+'-'+N[Math.min(b,3)];
+  }
+  /* Game-level history: [{set, num, server, tb, mtb, points:[{w,label,mark}], winner, score:[a,b], brk, inProgress}] */
+  function gameHistory(cfg, events){
+    var s = init(cfg), out = [], g = null, last = null;
+    function start(){ g = {set:s.sets.length+1, num:s.games[0]+s.games[1]+1, server:s.tb?s.tbFirst:s.server, tb:s.tb, mtb:s.mtb,
+                           points:[], winner:null, score:null, brk:false, inProgress:true}; }
+    start();
+    for (var i=0;i<events.length;i++){
+      var ev = events[i], srv = pointServer(s), pre = s.pts.slice(), np = s.nPoints, ph = s.phase,
+          nSets = s.sets.length, gsum = s.games[0]+s.games[1], tb = s.tb;
+      if (!apply(s, ev)) continue;
+      if (s.nPoints > np){
+        var w = ev==='ace' ? srv : ev==='df' ? 1-srv : (ev==='w0'?0:1);
+        var after = pre.slice(); after[w]++;
+        var ended = s.sets.length!==nSets || s.games[0]+s.games[1]!==gsum;
+        last = {w:w, srv:srv, mark: ev==='ace'?'A':ev==='df'?'DF':'',
+                label: ended ? (tb ? after[0]+'-'+after[1] : (w===g.server?'Game':'Break')) : progLabel(after, g.server, tb, cfg.noAd)};
+        g.points.push(last);
+        if (ended){
+          g.winner = w; g.inProgress = false; g.brk = !tb && w!==g.server;
+          g.score = s.sets.length!==nSets ? s.sets[s.sets.length-1].g.slice() : s.games.slice();
+          out.push(g); start();
+        }
+      } else if (ph==='how' && last && (ev==='win'||ev==='net'||ev==='out')){
+        last.mark = ev==='win' ? 'W' : ev==='net' ? 'N' : 'O';
+      }
+    }
+    if (!s.over){ g.score = s.games.slice(); out.push(g); }
+    return out;
+  }
+  return {gameHistory:gameHistory, progLabel:progLabel, init:init, apply:apply, replay:replay, pointServer:pointServer, isBreakPoint:isBreakPoint,
           pointWins:pointWins, pointLabel:pointLabel, isDeuce:isDeuce, need:need};
 })();
 if (typeof module!=='undefined') module.exports = Engine;
@@ -586,6 +656,7 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
   $('menu').onclick=function(e){ if (e.target===this) closeMenu(); };
   $('mSave').onclick=function(){ closeMenu(); saveAndExit(); };
   $('mStats').onclick=function(){ closeMenu(); showStats(cur, 'live'); };
+  $('mGames').onclick=function(){ closeMenu(); showGames(cur, 'play'); };
   $('mEnd').onclick=function(){ closeMenu(); ask('End match now?', 'The match will be finished as it stands and moved to history.', 'End match', function(){ finishMatch(true); }); };
   $('mDelete').onclick=function(){ closeMenu(); deleteMatch(cur.id, function(){ show('home'); }); };
 
@@ -683,6 +754,35 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
       Store.removeHistory(id); toast('Match deleted'); after && after();
     });
   }
+  // ---------- GAME HISTORY ----------
+  var ghFrom='play';
+  function showGames(m, from){
+    ghFrom = from; var n = m.cfg.names, gs = Engine.gameHistory(m.cfg, m.events), s = Engine.replay(m.cfg, m.events);
+    $('ghMeta').textContent = n[0]+' vs '+n[1]+' · '+scoreLine(s, true);
+    $('ghTbOrder').textContent = n[0]+'–'+n[1];
+    var h='', set=0;
+    gs.forEach(function(g){
+      if (g.set!==set){
+        set=g.set; var st=s.sets[set-1];
+        h += '<div class="ghset"><span>Set '+set+'</span>'+(st?'<b>'+esc(n[st.winner])+' '+(st.mtb?st.tb[st.winner]+'-'+st.tb[1-st.winner]:st.g[st.winner]+'-'+st.g[1-st.winner])+'</b>':'<span>in progress</span>')+'</div>';
+      }
+      var badge = g.inProgress ? '<span class="ipb">IN PROGRESS</span>' : g.brk ? '<span class="brk">BREAK</span>' : g.tb ? '<span class="tbb">'+(g.mtb?'MATCH TB':'TIEBREAK')+'</span>' : '';
+      var who = g.inProgress ? '' : '<span class="ghw">'+esc(n[g.winner])+'</span>';
+      var sc = g.mtb ? '' : g.score[0]+'-'+g.score[1];
+      var pts = g.points.map(function(p,i){
+        var end = !g.inProgress && i===g.points.length-1;
+        return '<span class="p'+p.w+(end?' end':'')+'">'+esc(p.label)+(p.mark?'<sup>'+p.mark+'</sup>':'')+'</span>';
+      }).join('');
+      h += '<div class="gh'+(g.inProgress?' live':'')+'"><div class="ghh"><span class="ghn">'+(g.tb?'TB':'G'+g.num)+'</span>'+
+           '<span class="ghsrv"><i></i>'+esc(n[g.server])+(g.tb?' first':'')+'</span>'+badge+who+'<span class="ghsc">'+sc+'</span></div>'+
+           '<div class="ghp">'+(pts||'<span class="muted">not started</span>')+'</div></div>';
+    });
+    h += '<div class="ghk"><span class="k0">'+esc(n[0])+' won point</span><span class="k1">'+esc(n[1])+' won point</span></div>';
+    $('ghList').innerHTML = h || '<div class="empty">No points yet.</div>';
+    show('gamehist');
+  }
+  $('ghBack').onclick=function(){ if (ghFrom==='play' && cur){ show('play'); renderPlay(); } else show(ghFrom); };
+  $('btnGames').onclick=function(){ if (viewing) showGames(viewing, 'stats'); };
   $('btnDelete').onclick=function(){ if (viewing) deleteHistory(viewing.id, function(){ show('history'); }); };
   function statsText(m){
     var s = Engine.replay(m.cfg, m.events), n=m.cfg.names, rows=statRows(s);
@@ -722,7 +822,7 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
   // Boot: reopen the match that was on screen (if any), otherwise Home
   var act = Store.getActive(), am = act && Store.getSaved(act);
   if (am) openMatch(am); else { Store.setActive(null); show('home'); }
-  window.__tennis = {showStats:showStats, openMatch:openMatch, Store:Store};
+  window.__tennis = {showGames:showGames, showStats:showStats, openMatch:openMatch, Store:Store};
 })();
 </script>
 <script>
