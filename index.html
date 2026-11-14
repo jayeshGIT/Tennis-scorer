@@ -178,7 +178,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
       <div class="hlist" id="savedList"></div>
     </div>
     <button class="big secondary" id="btnHistory">Match history</button>
-    <div class="muted small" style="text-align:center;margin-top:18px;opacity:.6">Version 5 · forced vs unforced errors</div>
+    <div class="muted small" style="text-align:center;margin-top:18px;opacity:.6">Version 6 · rally / attacking / forced errors</div>
   </section>
 
   <!-- SETUP -->
@@ -236,7 +236,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
   <section class="screen" id="s-gamehist">
     <div class="topbar"><button class="pill" id="ghBack">‹ Back</button><h2>Game history</h2><span style="width:70px"></span></div>
     <div class="muted small" id="ghMeta" style="text-align:center"></div>
-    <div class="ghlegend">Scores server first · tiebreaks <span id="ghTbOrder"></span><br><b>A</b> ace · <b>DF</b> double fault · <b>W</b> winner · <b>F</b> forced error<br><b>N</b> unforced error in net · <b>O</b> unforced error out/wide</div>
+    <div class="ghlegend">Scores server first · tiebreaks <span id="ghTbOrder"></span><br><b>Ace</b> ace · <b>DF</b> double fault · <b>W</b> winner · <b>F</b> forced error<br><b>R</b> rally error · <b>A</b> attacking error (both unforced)</div>
     <div id="ghList"></div>
   </section>
 
@@ -271,7 +271,7 @@ table.st td{color:#c9ced8;font-variant-numeric:tabular-nums}
    Events: 'ace' | 'in' | 'fault' | 'df' | 'w0' | 'w1'  */
 var Engine = (function(){
   function mkStats(){ return {points:0,games:0,aces:0,dfs:0,servePts:0,firstIn:0,firstWon:0,secondPts:0,secondWon:0,
-    svcGames:0,svcWon:0,bpOpp:0,bpWon:0,recvPts:0,recvWon:0,maxGames:0,maxPts:0,winners:0,fe:0,ue:0,ueNet:0,ueOut:0}; }
+    svcGames:0,svcWon:0,bpOpp:0,bpWon:0,recvPts:0,recvWon:0,maxGames:0,maxPts:0,winners:0,fe:0,ue:0,re:0,ae:0}; }
 
   function init(cfg){
     var s = {
@@ -360,14 +360,16 @@ var Engine = (function(){
   }
   function apply(s, ev){
     // 'how' phase: how the last rally point ended. Events: 'win' (winner by point winner),
-    // 'fe' (forced error by point loser), 'net' / 'out' (unforced error by point loser). Older logs have no such event: any
+    // 'fe' (forced error by point loser), 're' rally error / 'ae' attacking error (both unforced,
+    // by point loser). Legacy 'net'/'out' count as rally errors. Older logs have no such event: any
     // other event here means "unknown" and is processed normally.
     if (s.phase==='how'){
       var hw = s.howWinner, hl = 1-hw;
       s.phase = s.over ? 'over' : 'serve1'; s.howWinner = null;
       if (ev==='win'){ s.stats[hw].winners++; return true; }
       if (ev==='fe'){ s.stats[hl].fe++; return true; }   // forced error by the point loser
-      if (ev==='net'||ev==='out'){ s.stats[hl].ue++; s.stats[hl][ev==='net'?'ueNet':'ueOut']++; return true; }
+      if (ev==='re'||ev==='net'||ev==='out'){ s.stats[hl].ue++; s.stats[hl].re++; return true; }
+      if (ev==='ae'){ s.stats[hl].ue++; s.stats[hl].ae++; return true; }
     }
     if (s.over) return false;
     var srv = pointServer(s);
@@ -429,7 +431,7 @@ var Engine = (function(){
         var w = ev==='ace' ? srv : ev==='df' ? 1-srv : (ev==='w0'?0:1);
         var after = pre.slice(); after[w]++;
         var ended = s.sets.length!==nSets || s.games[0]+s.games[1]!==gsum;
-        last = {w:w, srv:srv, mark: ev==='ace'?'A':ev==='df'?'DF':'',
+        last = {w:w, srv:srv, mark: ev==='ace'?'Ace':ev==='df'?'DF':'',
                 label: ended ? (tb ? after[0]+'-'+after[1] : (w===g.server?'Game':'Break')) : progLabel(after, g.server, tb, cfg.noAd)};
         g.points.push(last);
         if (ended){
@@ -437,8 +439,8 @@ var Engine = (function(){
           g.score = s.sets.length!==nSets ? s.sets[s.sets.length-1].g.slice() : s.games.slice();
           out.push(g); start();
         }
-      } else if (ph==='how' && last && (ev==='win'||ev==='fe'||ev==='net'||ev==='out')){
-        last.mark = ev==='win' ? 'W' : ev==='fe' ? 'F' : ev==='net' ? 'N' : 'O';
+      } else if (ph==='how' && last && (ev==='win'||ev==='fe'||ev==='re'||ev==='ae'||ev==='net'||ev==='out')){
+        last.mark = ev==='win' ? 'W' : ev==='fe' ? 'F' : ev==='ae' ? 'A' : 'R';
       }
     }
     if (!s.over){ g.score = s.games.slice(); out.push(g); }
@@ -632,8 +634,8 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
       q = 'How did '+esc(n[hw])+' win it?'; sub = 'Point to '+esc(n[hw]);
       acts = [['win','a-ace','Winner','clean winner by '+esc(n[hw])],
               ['fe','a-fe','<span class="nm">'+esc(n[hl])+' forced error</span>','pushed into a miss by '+esc(n[hw])+'’s shot'],
-              ['net','a-fault','<span class="nm">'+esc(n[hl])+' unforced error – net</span>','easy ball, own mistake'],
-              ['out','a-df','<span class="nm">'+esc(n[hl])+' unforced error – out/wide</span>','easy ball, own mistake']];
+              ['re','a-fault','<span class="nm">'+esc(n[hl])+' rally error</span>','unforced miss in a neutral rally'],
+              ['ae','a-df','<span class="nm">'+esc(n[hl])+' attacking error</span>','went for it off a weak ball and missed']];
     } else {
       q = 'Who won the point?'; sub = (s.phase==='rally1'?'1st':'2nd')+' serve in';
       acts = [['w0','a-p0','<span class="nm">'+esc(n[0])+'</span>',srv===0?'server':'receiver'],
@@ -711,8 +713,8 @@ if (typeof module!=='undefined') module.exports.makeStore = makeStore;
       r('Winners', function(x){return x.winners}, function(x){return x.winners}),
       r('Forced Errors', function(x){return x.fe}, function(x){return -x.fe}),
       r('Unforced Errors', function(x){return x.ue}, function(x){return -x.ue}),
-      r('UE – Net', function(x){return x.ueNet}, function(x){return -x.ueNet}),
-      r('UE – Out/Side', function(x){return x.ueOut}, function(x){return -x.ueOut}),
+      r('Rally Errors', function(x){return x.re}, function(x){return -x.re}),
+      r('Attacking Errors', function(x){return x.ae}, function(x){return -x.ae}),
       r('Max Games in a Row', function(x){return x.maxGames}, function(x){return x.maxGames}),
       r('Max Points in a Row', function(x){return x.maxPts}, function(x){return x.maxPts})
     ];
